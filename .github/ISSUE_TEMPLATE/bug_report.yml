@@ -1,0 +1,38 @@
+name: Reportar problema
+description: Conte um erro no Instala Fácil
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Obrigado por contribuir! Não envie senhas ou dados privados no relatório."
+  - type: input
+    id: linux
+    attributes:
+      label: Distribuição e versão do Linux
+      placeholder: "Ex.: Ubuntu 24.04 LTS"
+    validations:
+      required: true
+  - type: input
+    id: versao
+    attributes:
+      label: Versão do Instala Fácil
+      placeholder: "Ex.: 2.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: formato
+    attributes:
+      label: Formato de arquivo
+      options: ["DEB", "RPM", "AppImage", "Flatpak", "Abertura do app", "Outro"]
+    validations:
+      required: true
+  - type: textarea
+    id: descricao
+    attributes:
+      label: O que aconteceu e o que deveria acontecer?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Trechos relevantes do relatório (sem dados privados)

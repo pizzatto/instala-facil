@@ -1,0 +1,19 @@
+name: Testes Linux
+on:
+  push:
+  pull_request:
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependências de teste
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+      - name: Testes de lógica
+        run: python3 -m unittest discover -s tests -v
+      - name: Teste de inicialização da interface
+        run: xvfb-run -a python3 src/main.py --smoke-test
+      - name: Construir pacote Debian
+        run: ./packaging/build_deb.sh
+      - name: Validar metadados do pacote
+        run: dpkg-deb --info dist/instala-facil_2.0.0_all.deb

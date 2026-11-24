@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Instala Fácil
+GenericName=Instalador de aplicativos para Linux
+Comment=Instale pacotes DEB, RPM, AppImage e Flatpak com interface gráfica
+Exec=instala-facil %F
+Icon=instala-facil
+Terminal=false
+Categories=System;Utility;PackageManager;
+StartupNotify=true
+Keywords=instalador;instalar;programas;aplicativos;deb;rpm;appimage;flatpak;
