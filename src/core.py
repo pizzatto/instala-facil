@@ -166,6 +166,10 @@ def _run_process(command: list[str], log: Log) -> None:
             )
         if 'authentication agent' in lowered or 'not authorized' in lowered:
             raise InstallError("O Linux não encontrou um agente de autorização para solicitar sua senha.\n" + details)
+        if any(t in lowered for t in ("could not get lock", "unable to acquire", "another process", "não foi possível obter trava")):
+            raise InstallError("Outro gerenciador de pacotes está em execução. Feche-o e tente novamente. Não apague arquivos de bloqueio.\n" + details)
+        if any(t in lowered for t in ("no space left", "not enough free space", "espaço insuficiente")):
+            raise InstallError("Espaço em disco insuficiente. Libere espaço e tente novamente.\n" + details)
         if 'unable to locate package' in lowered or 'dependências' in lowered or 'dependencies' in lowered:
             raise InstallError("Falha ao resolver as dependências do aplicativo.\n" + details)
         raise InstallError(f"Instalação não concluída (código {code}).\n" + details)
@@ -278,3 +282,49 @@ def install(plan: InstallPlan, log: Log = print, appimage_home: Path | None = No
         _run_process([flatpak, "install", "--user", "--assumeyes", "--noninteractive", mode, str(plan.path)], log)
         return
     raise InstallError("Formato de arquivo desconhecido.")
+
+
+def installation_groups(plans: list[InstallPlan]) -> list[list[InstallPlan]]:
+    """Agrupa DEB e RPM por formato; mantém os aplicativos de usuário separados."""
+    groups: list[list[InstallPlan]] = []
+    system: dict[PackageKind, list[InstallPlan]] = {}
+    for plan in plans:
+        if plan.kind in (PackageKind.DEB, PackageKind.RPM):
+            if plan.kind not in system:
+                system[plan.kind] = []
+                groups.append(system[plan.kind])
+            system[plan.kind].append(plan)
+        else:
+            groups.append([plan])
+    return groups
+
+
+def install_group(plans: list[InstallPlan], log: Log = print) -> None:
+    """Solicita uma autorização por lote, sem manter privilégios permanentes."""
+    if not plans:
+        raise InstallError("Nenhum arquivo selecionado.")
+    kind = plans[0].kind
+    for plan in plans:
+        if build_plan(plan.path).kind != kind or plan.kind != kind:
+            raise InstallError("O arquivo mudou ou não pertence ao tipo do lote.")
+    if len(plans) == 1:
+        install(plans[0], log)
+        return
+    if kind not in (PackageKind.DEB, PackageKind.RPM):
+        raise InstallError("Somente DEB e RPM podem ser instalados em lote.")
+    pkexec = _find_command("pkexec")
+    backend = _find_command("apt-get") if kind == PackageKind.DEB else _rpm_backend()
+    if not pkexec or not backend:
+        raise InstallError("Gerenciador de pacotes ou autorização gráfica indisponível.")
+    files = [str(plan.path) for plan in plans]
+    if kind == PackageKind.DEB:
+        command = [pkexec, backend, "-o", "Dpkg::Use-Pty=0", "install", "-y", "--", *files]
+    elif Path(backend).name == "zypper":
+        command = [pkexec, backend, "--non-interactive", "install", "--", *files]
+    else:
+        command = [pkexec, backend, "install", "-y", "--", *files]
+    log(f"Solicitando uma autorização para {len(plans)} pacotes {kind.value.upper()}…")
+    try:
+        _run_process(command, log)
+    except InstallError as exc:
+        raise InstallError(f"Não foi possível confirmar todo o lote. Alguns pacotes podem ter sido instalados; consulte o relatório antes de tentar novamente.\n{exc}") from exc

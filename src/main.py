@@ -12,21 +12,21 @@ import sys
 import threading
 import traceback
 
-from core import InstallError, InstallPlan, build_plan, install
+from core import InstallError, InstallPlan, build_plan, installation_groups, install_group
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 COLORS = {
-    "canvas": "#F3F4F6",
+    "canvas": "#F1F3F6",
     "white": "#FFFFFF",
-    "dark": "#141519",
-    "dark2": "#24262B",
-    "ink": "#17181B",
-    "muted": "#6F747D",
-    "subtle": "#979CA5",
-    "line": "#E5E7EB",
-    "soft": "#F9FAFB",
-    "green": "#24774E",
-    "red": "#B53E3E",
+    "dark": "#101217",
+    "dark2": "#20242D",
+    "ink": "#151A23",
+    "muted": "#586271",
+    "subtle": "#8A929F",
+    "line": "#DCE1E8",
+    "soft": "#F7F8FA",
+    "green": "#137451",
+    "red": "#B42336",
 }
 
 
@@ -82,6 +82,7 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             self.root.title(f"Instala Fácil  ·  v{VERSION}")
             self.root.geometry("1160x820")
             self.root.minsize(940, 680)
+            self.root.report_callback_exception = self.report_gui_error
             self.root.configure(bg=COLORS["canvas"])
             self.root.protocol("WM_DELETE_WINDOW", self.close)
             self.root.bind("<Control-o>", lambda event: self.choose())
@@ -104,6 +105,10 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             self.root.after(80, self.poll_events)
             if smoke_test:
                 self.root.after(400, self.root.destroy)
+
+        def report_gui_error(self, exc_type, exc, tb):
+            path = save_startup_error(exc)
+            messagebox.showerror("Erro inesperado", f"{exc}\n\nRelatório: {path or 'indisponível'}", parent=self.root)
 
         def label(self, parent, text, *, size=10, weight="normal", fg=None, bg=None, **extra):
             return tk.Label(parent, text=text, font=("DejaVu Sans", size, weight),
@@ -171,18 +176,18 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             self.footer_status = self.label(footer, "Pronto para receber arquivos.", size=9,
                                             bg=COLORS["white"], fg=COLORS["muted"])
             self.footer_status.pack(side="left", fill="x", expand=True)
-            self.install_button = self.button(footer, "Instalar agora  →", self.start_install, dark=True)
+            self.install_button = self.button(footer, "Revisar e instalar  →", self.start_install, dark=True)
             self.install_button.pack(side="right")
 
             content = tk.Frame(base, bg=COLORS["canvas"], padx=31, pady=26)
             content.pack(fill="both", expand=True)
             head = tk.Frame(content, bg=COLORS["canvas"])
             head.pack(fill="x")
-            self.label(head, "VISÃO GERAL", size=8, weight="bold", bg=COLORS["canvas"],
+            self.label(head, "CENTRAL DE INSTALAÇÃO", size=8, weight="bold", bg=COLORS["canvas"],
                        fg=COLORS["muted"]).pack(anchor="w")
-            self.label(head, "Instale seus aplicativos.", size=24, weight="bold",
+            self.label(head, "Seus aplicativos. Sem complicação.", size=24, weight="bold",
                        bg=COLORS["canvas"]).pack(anchor="w", pady=(5, 3))
-            self.label(head, "Arquivos baixados no site oficial, instalados em poucos cliques.",
+            self.label(head, "Organize seus instaladores, revise a fila e acompanhe cada instalação.",
                        size=10, bg=COLORS["canvas"], fg=COLORS["muted"]).pack(anchor="w")
 
             hero = tk.Frame(content, bg=COLORS["white"], padx=22, pady=20,
@@ -190,8 +195,8 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             hero.pack(fill="x", pady=(22, 14))
             hero_text = tk.Frame(hero, bg=COLORS["white"])
             hero_text.pack(side="left", fill="x", expand=True)
-            self.label(hero_text, "Pronto para instalar?", size=14, weight="bold").pack(anchor="w")
-            self.label(hero_text, "Escolha um ou vários arquivos do seu computador.",
+            self.label(hero_text, "Adicionar instaladores", size=14, weight="bold").pack(anchor="w")
+            self.label(hero_text, "Selecione arquivos ou abra pelo menu ‘Abrir com’ do Linux.",
                        fg=COLORS["muted"], size=9).pack(anchor="w", pady=(5, 6))
             self.label(hero_text, ".DEB      .RPM      .APPIMAGE      .FLATPAKREF      .FLATPAK",
                        size=8, fg=COLORS["muted"]).pack(anchor="w")
@@ -247,13 +252,16 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             scrollbar.pack(side="right", fill="y")
             self.tree.pack(side="left", fill="both", expand=True)
             self.tree.bind("<Double-1>", self.show_selected_path)
+            self.tree.bind("<<TreeviewSelect>>", lambda event: self.update_controls())
+            self.tree.bind("<Button-3>", self.queue_menu)
             actions = tk.Frame(pane, bg=COLORS["white"])
             actions.pack(fill="x", pady=(12, 0))
-            self.remove_button = self.button(actions, "Remover seleção", self.remove_selected, small=True)
+            self.remove_button = self.button(actions, "×  Remover da fila", self.remove_selected, small=True)
             self.remove_button.pack(side="left")
+            self.remove_button.configure(fg=COLORS["red"], activeforeground=COLORS["red"])
             self.clear_button = self.button(actions, "Limpar lista", self.clear, small=True)
             self.clear_button.pack(side="left", padx=(9, 0))
-            self.label(actions, "Ctrl+O: selecionar  •  Ctrl+Enter: instalar",
+            self.label(actions, "Delete: remover  •  Ctrl+O: adicionar",
                        size=8, fg=COLORS["muted"]).pack(side="right")
             # Actions must not vanish when the queue is compact on laptops.
             actions.pack_forget()
@@ -317,7 +325,7 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
                            ("Todos os arquivos", "*")],
             )
             if selected:
-                self.add_files(list(selected), ask_to_install=True)
+                self.add_files(list(selected), ask_to_install=False)
 
         def add_files(self, paths, *, ask_to_install=True):
             if self.busy or self.preview:
@@ -328,7 +336,8 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             for raw_path in paths:
                 try:
                     plan = build_plan(raw_path)
-                except InstallError as exc:
+                    size = plan.path.stat().st_size
+                except (InstallError, OSError) as exc:
                     errors.append(f"{Path(raw_path).name}: {exc}")
                     continue
                 key = str(plan.path)
@@ -339,32 +348,35 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
                 self.results[key] = "Pronto para instalar"
                 self.tree.insert("", "end", iid=key,
                                  values=(plan.path.name, plan.kind.value.upper(),
-                                         human_size(plan.path.stat().st_size), "Pronto para instalar"),
+                                         human_size(size), "Pronto para instalar"),
                                  tags=("odd",) if len(self.jobs) % 2 else ())
                 added += 1
             self.update_controls()
             if added:
-                self.footer_status.config(text=f"{added} arquivo(s) adicionado(s). Clique em Instalar agora.")
+                self.footer_status.config(text=f"{added} arquivo(s) adicionado(s). Revise a fila antes de instalar.")
                 self.status_detail.config(text="Pronto: confirme a instalação para iniciar.")
                 self.append_log(f"{added} arquivo(s) adicionado(s) à fila.")
             if errors:
+                for error in errors:
+                    self.append_log("ERRO: " + error)
+                if not self.details_expanded:
+                    self.toggle_details()
                 messagebox.showwarning("Arquivos não adicionados", "\n\n".join(errors[:5]), parent=self.root)
-            if added and ask_to_install:
-                self.root.after(100, self.confirm_install)
 
-        def confirm_install(self):
-            if self.busy or not self.jobs:
+        def queue_menu(self, event):
+            item = self.tree.identify_row(event.y)
+            if not item:
                 return
-            if messagebox.askyesno(
-                "Iniciar instalação?",
-                f"{len(self.jobs)} aplicativo(s) na fila.\n\n"
-                "Deseja iniciar agora?\n\n"
-                "Pacotes DEB/RPM podem solicitar a senha de administrador do Linux.\n"
-                "Instale somente arquivos de fontes confiáveis.", parent=self.root,
-            ):
-                self.start_install()
-            else:
-                self.footer_status.config(text="Instalação não iniciada. Use o botão 'Instalar agora'.")
+            if item not in self.tree.selection():
+                self.tree.selection_set(item)
+            menu = tk.Menu(self.root, tearoff=False)
+            menu.add_command(label="Ver local do arquivo", command=self.show_selected_path)
+            menu.add_command(label="Remover da fila", command=self.remove_selected,
+                             state="disabled" if self.busy or self.preview else "normal")
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
 
         def show_selected_path(self, event=None):
             selected = self.tree.selection()
@@ -378,11 +390,14 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             if self.busy or self.preview:
                 return
             selected = set(self.tree.selection())
+            if not selected:
+                return
             self.jobs = [plan for plan in self.jobs if str(plan.path) not in selected]
             for item in selected:
                 self.results.pop(item, None)
                 self.tree.delete(item)
             self.update_controls()
+            self.footer_status.config(text=f"{len(selected)} arquivo(s) removido(s) da fila. Os arquivos originais não foram apagados.")
 
         def clear(self):
             if self.busy or self.preview:
@@ -402,8 +417,11 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
 
         def update_controls(self):
             enabled = "normal" if not self.busy and not self.preview else "disabled"
-            for control in (self.choose_button, self.remove_button, self.clear_button):
-                control.config(state=enabled)
+            self.choose_button.config(state=enabled)
+            self.remove_button.config(state=enabled if self.tree.selection() else "disabled")
+            self.clear_button.config(state=enabled if self.jobs else "disabled")
+            self.completed = sum(v == "Concluído" for v in self.results.values())
+            self.failed = sum(v == "Falhou" for v in self.results.values())
             pending = sum(1 for value in self.results.values() if value in ("Pronto para instalar", "Preparando…", "Instalando…"))
             self.stat_labels["ready"].config(text=str(pending))
             self.stat_labels["done"].config(text=str(self.completed))
@@ -412,7 +430,8 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
                 self.count_label.config(text=f"{len(self.jobs)} arquivo(s) selecionado(s)" if self.jobs else "Nenhum arquivo adicionado")
             # Let the user retry only failed or not-yet-completed jobs.
             has_work = any(value != "Concluído" for value in self.results.values())
-            self.install_button.config(state="normal" if has_work and not self.busy and not self.preview else "disabled")
+            self.install_button.config(state="normal" if has_work and not self.busy and not self.preview else "disabled",
+                                       text="Tentar novamente  →" if self.failed and not pending else "Revisar e instalar  →")
 
         def append_log(self, text, *, clear=False):
             self.log.config(state="normal")
@@ -421,6 +440,14 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             if text:
                 stamp = datetime.now().strftime("%H:%M:%S")
                 self.log.insert("end", f"[{stamp}] {text}\n")
+                if not self.preview and text.startswith("ERRO:"):
+                    try:
+                        path = error_log_path()
+                        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                        with path.open("a", encoding="utf-8") as handle:
+                            handle.write(f"[{datetime.now().isoformat(timespec='seconds')}] {text}\n")
+                    except OSError:
+                        pass
                 self.log.see("end")
             self.log.config(state="disabled")
 
@@ -448,6 +475,15 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             targets = [p for p in self.jobs if self.results.get(str(p.path)) != "Concluído"]
             if not targets:
                 return
+            if not messagebox.askyesno(
+                "Revisar instalação",
+                f"Instalar {len(targets)} arquivo(s)?\n\n" +
+                "\n".join(p.path.name for p in targets[:8]) +
+                (f"\n… e outros {len(targets)-8}" if len(targets) > 8 else "") +
+                "\n\nUma autorização por lote DEB/RPM. AppImage e Flatpak de usuário não precisam de senha administrativa.\n"
+                "Confirme somente arquivos de fontes confiáveis.", parent=self.root,
+            ):
+                return
             self.busy = True
             self.failures.clear()
             self.progress["value"] = 0
@@ -461,8 +497,10 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
                 threading.Thread(target=self.worker, args=(targets,), daemon=True).start()
             except RuntimeError as exc:
                 self.busy = False
+                for p in targets:
+                    self._change_file(str(p.path), "Falhou")
                 self.update_controls()
-                self.append_log(f"Falha ao iniciar instalação: {exc}")
+                self.append_log(f"ERRO: Falha ao iniciar instalação: {exc}")
                 messagebox.showerror("Falha ao iniciar", str(exc), parent=self.root)
 
         def _change_file(self, key, value):
@@ -473,27 +511,33 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
                     self.tree.item(key, tags=("error",))
                 elif value == "Concluído":
                     self.tree.item(key, tags=("success",))
+                else:
+                    self.tree.item(key, tags=())
 
         def worker(self, targets: list[InstallPlan]):
-            successful = failed = 0
+            successful = failed = processed = 0
             total = len(targets)
-            for index, plan in enumerate(targets, start=1):
-                key = str(plan.path)
-                self.events.put(("file", key, "Instalando…"))
-                self.events.put(("status", f"Instalando {index}/{total}: {plan.path.name}"))
-                self.events.put(("log", f"── {plan.path.name} ──"))
+            for group in installation_groups(targets):
+                names = ", ".join(plan.path.name for plan in group)
+                for plan in group:
+                    self.events.put(("file", str(plan.path), "Instalando…"))
+                self.events.put(("status", f"Instalando {processed+1}–{processed+len(group)}/{total}"))
+                self.events.put(("log", f"── {names} ──"))
                 try:
-                    install(plan, log=lambda line: self.events.put(("log", line)))
+                    install_group(group, log=lambda line: self.events.put(("log", line)))
                 except Exception as exc:
-                    failed += 1
-                    self.events.put(("file", key, "Falhou"))
-                    self.events.put(("log", f"ERRO: {exc}"))
-                    self.events.put(("failure", f"{plan.path.name}: {exc}"))
+                    failed += len(group)
+                    for plan in group:
+                        self.events.put(("file", str(plan.path), "Falhou"))
+                    self.events.put(("log", f"ERRO: {names}: {exc}"))
+                    self.events.put(("failure", f"{names}: {exc}"))
                 else:
-                    successful += 1
-                    self.events.put(("file", key, "Concluído"))
+                    successful += len(group)
+                    for plan in group:
+                        self.events.put(("file", str(plan.path), "Concluído"))
                     self.events.put(("log", "Instalação concluída."))
-                self.events.put(("progress", index / total * 100, index, total))
+                processed += len(group)
+                self.events.put(("progress", processed / total * 100, processed, total))
             self.events.put(("complete", successful, failed))
 
         def poll_events(self):
@@ -550,11 +594,8 @@ def start_gui(paths: list[str], *, smoke_test: bool = False, preview: bool = Fal
             )
 
         def close(self):
-            if self.busy and not messagebox.askyesno(
-                "Instalação em andamento",
-                "A instalação está em andamento. Sair agora pode interromper o processo. Continuar?",
-                parent=self.root,
-            ):
+            if self.busy:
+                messagebox.showinfo("Instalação em andamento", "Aguarde a conclusão antes de fechar para não interromper o gerenciador de pacotes.", parent=self.root)
                 return
             self.root.destroy()
 

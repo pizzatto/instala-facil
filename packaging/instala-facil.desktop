@@ -10,3 +10,4 @@ Terminal=false
 Categories=System;Utility;PackageManager;
 StartupNotify=true
 Keywords=instalador;instalar;programas;aplicativos;deb;rpm;appimage;flatpak;
+MimeType=application/vnd.debian.binary-package;application/x-deb;application/x-rpm;application/vnd.appimage;application/x-iso9660-appimage;application/vnd.flatpak.ref;application/vnd.flatpak;

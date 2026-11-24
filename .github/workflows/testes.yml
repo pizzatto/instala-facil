@@ -16,4 +16,31 @@ jobs:
       - name: Construir pacote Debian
         run: ./packaging/build_deb.sh
       - name: Validar metadados do pacote
-        run: dpkg-deb --info dist/instala-facil_2.0.0_all.deb
+        run: dpkg-deb --info dist/instala-facil_2.1.0_all.deb
+      - name: Gerar SHA-256
+        run: cd dist && sha256sum instala-facil_2.1.0_all.deb > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instala-facil-2.1.0-deb
+          path: |
+            dist/instala-facil_2.1.0_all.deb
+            dist/SHA256SUMS
+  publicar:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: testar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: instala-facil-2.1.0-deb
+          path: dist
+      - name: Publicar release após testes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view v2.1.0 >/dev/null 2>&1; then
+            gh release create v2.1.0 dist/instala-facil_2.1.0_all.deb dist/SHA256SUMS --target "$GITHUB_SHA" --title "Instala Fácil 2.1.0" --notes "Fila editável, integração Abrir com, melhorias visuais, relatório de falhas e autorização agrupada por lote."
+          fi
